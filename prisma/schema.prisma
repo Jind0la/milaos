@@ -1,0 +1,120 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Cluster {
+  id                  String               @id @default(cuid())
+  name                String
+  description         String?
+  parentId            String?
+  parent              Cluster?             @relation("ClusterHierarchy", fields: [parentId], references: [id])
+  children            Cluster[]            @relation("ClusterHierarchy")
+  memberships         ClusterMembership[]
+  embeddings          Embedding[]
+  lastAutoOrganizedAt DateTime?
+  cohesionScore       Float?               @default(0)
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  lastAccessedAt      DateTime?            @map("cluster_last_accessed_at")
+  accessLogs          AccessLog[]
+
+  @@index([parentId])
+}
+
+model MemoryNode {
+  id               String               @id @default(cuid())
+  title            String
+  content          String
+  metadata         Json?
+  priority         Float?               @default(0)
+  stateTag         String?              @comment("Label for auto-organization state (e.g., draft, stable, decaying)")
+  lastAccessedAt   DateTime?            @comment("Used for auto-aging freshness calculations")
+  embeddings       Embedding[]
+  clusterWeight    Float?               @default(0)
+  memberships      ClusterMembership[]
+  outgoingLinks    MemoryLink[]         @relation("MemoryLinksFrom")
+  incomingLinks    MemoryLink[]         @relation("MemoryLinksTo")
+  accessLogs       AccessLog[]
+  createdBySession AgentSession?        @relation("SessionCreatedMemory", fields: [createdBySessionId], references: [id])
+  createdBySessionId String?
+  createdAt        DateTime             @default(now())
+  updatedAt        DateTime             @updatedAt
+
+  @@index([lastAccessedAt])
+}
+
+model ClusterMembership {
+  id            String     @id @default(cuid())
+  clusterId     String
+  memoryNodeId  String
+  membershipTag String?
+  relevance     Float       @default(0)
+  createdAt     DateTime    @default(now())
+
+  cluster    Cluster    @relation(fields: [clusterId], references: [id], onDelete: Cascade)
+  memoryNode MemoryNode @relation(fields: [memoryNodeId], references: [id], onDelete: Cascade)
+
+  @@unique([clusterId, memoryNodeId])
+}
+
+model MemoryLink {
+  id          String     @id @default(cuid())
+  sourceId    String
+  targetId    String
+  relation    String?
+  weight      Float      @default(0.5)
+  createdAt   DateTime   @default(now())
+
+  source MemoryNode @relation("MemoryLinksFrom", fields: [sourceId], references: [id], onDelete: Cascade)
+  target MemoryNode @relation("MemoryLinksTo", fields: [targetId], references: [id], onDelete: Cascade)
+
+  @@index([sourceId])
+  @@index([targetId])
+}
+
+model Embedding {
+  id           String      @id @default(cuid())
+  provider     String
+  vector       Bytes
+  dimension    Int
+  space        String?     @comment("Name of the embedding space/config")
+  memoryNodeId String
+  createdAt    DateTime    @default(now())
+
+  memoryNode MemoryNode @relation(fields: [memoryNodeId], references: [id], onDelete: Cascade)
+}
+
+model AgentSession {
+  id             String        @id @default(cuid())
+  agentIdentifier String
+  context         Json?
+  startedAt       DateTime     @default(now())
+  endedAt         DateTime?
+  operationsCount Int          @default(0)
+  createdMemories MemoryNode[] @relation("SessionCreatedMemory")
+  accessLogs      AccessLog[]
+}
+
+model AccessLog {
+  id             String        @id @default(cuid())
+  agentSessionId String?
+  memoryNodeId   String?
+  clusterId      String?
+  actor          String?
+  action         String        @default("read")
+  relevanceDelta Float?        @comment("How this access should influence auto-organization priority")
+  accessedAt     DateTime      @default(now())
+
+  agentSession AgentSession? @relation(fields: [agentSessionId], references: [id], onDelete: SetNull)
+  memoryNode   MemoryNode?   @relation(fields: [memoryNodeId], references: [id], onDelete: SetNull)
+  cluster      Cluster?      @relation(fields: [clusterId], references: [id], onDelete: SetNull)
+
+  @@index([memoryNodeId])
+  @@index([clusterId])
+  @@index([agentSessionId])
+}

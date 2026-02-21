@@ -1,0 +1,1 @@
+TEST SUCCESSFUL! Claude Code can write files.
